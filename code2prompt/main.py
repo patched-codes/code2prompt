@@ -109,17 +109,22 @@ def is_binary(file_path):
     help="Strip comments from the code files.",
     default=False,
 )
-def create_markdown_file(path, output, gitignore, filter, suppress_comments):
+def create_markdown_file(path, output, gitignore, filter, suppress_comments, max_depth=float('inf')):
     """Create a Markdown file with the content of files in a directory."""
     content = []
     table_of_contents = []
-
     path = Path(path)
     gitignore_path = Path(gitignore) if gitignore else path / ".gitignore"
     gitignore_patterns = parse_gitignore(gitignore_path)
     gitignore_patterns.add(".git")
 
     for file_path in path.rglob("*"):
+        relative_path = file_path.relative_to(path)
+        current_depth = len(relative_path.parts)
+
+        if current_depth > max_depth:
+            continue
+
         if (
             file_path.is_file()
             and not is_ignored(file_path, gitignore_patterns, path)
@@ -134,7 +139,6 @@ def create_markdown_file(path, output, gitignore, filter, suppress_comments):
             file_modification_time = datetime.fromtimestamp(
                 file_path.stat().st_mtime
             ).strftime("%Y-%m-%d %H:%M:%S")
-
             try:
                 with file_path.open("r", encoding="utf-8") as f:
                     file_content = f.read()
@@ -145,28 +149,22 @@ def create_markdown_file(path, output, gitignore, filter, suppress_comments):
             except UnicodeDecodeError:
                 # Ignore files that cannot be decoded
                 continue
-
             file_info = f"## File: {file_path}\n\n"
             file_info += f"- Extension: {file_extension}\n"
             file_info += f"- Size: {file_size} bytes\n"
             file_info += f"- Created: {file_creation_time}\n"
             file_info += f"- Modified: {file_modification_time}\n\n"
-
             language = infer_language(file_path.name)
             if language == "unknown":
                 language = format(file_extension[1:])
-
             file_code = f"### Code\n```{language}\n{file_content}\n```\n\n"
-
             content.append(file_info + file_code)
             table_of_contents.append(
                 f"- [{file_path}](#{file_path.as_posix().replace('/', '')})\n"
             )
-
     markdown_content = (
         "# Table of Contents\n" + "".join(table_of_contents) + "\n" + "".join(content)
     )
-
     if output:
         output_path = Path(output)
         with output_path.open("w", encoding="utf-8") as md_file:
