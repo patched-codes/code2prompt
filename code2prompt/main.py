@@ -109,6 +109,13 @@ def is_binary(file_path):
     help="Strip comments from the code files.",
     default=False,
 )
+@click.option(
+    "--max-depth",
+    "-d",
+    type=int,
+    default=None,
+    help="Maximum depth to recurse into subdirectories. Default is unlimited.",
+)
 def create_markdown_file(path, output, gitignore, filter, suppress_comments, max_depth=float('inf')):
     """Create a Markdown file with the content of files in a directory."""
     content = []
@@ -176,4 +183,6 @@ def create_markdown_file(path, output, gitignore, filter, suppress_comments, max
 
 if __name__ == "__main__":
     # pylint: disable=no-value-for-parameter
-    create_markdown_file()
+     # Convert None to float('inf') for unlimited depth
+    max_depth = float('inf') if max_depth is None else max_depth
+    create_markdown_file(max_depth=max_depth)
