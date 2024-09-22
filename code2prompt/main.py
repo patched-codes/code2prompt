@@ -7,7 +7,7 @@ import click
 
 from code2prompt.language_inference import infer_language
 from code2prompt.comment_stripper import strip_comments
-
+from code2prompt.function_stripper import strip_function_contents
 
 def parse_gitignore(gitignore_path):
     """Parse the .gitignore file and return a set of patterns."""
@@ -83,106 +83,76 @@ def is_binary(file_path):
 
 
 @click.command()
-@click.option(
-    "--path",
-    "-p",
-    type=click.Path(exists=True),
-    required=True,
-    help="Path to the directory to navigate.",
-)
-@click.option(
-    "--output", "-o", type=click.Path(), help="Name of the output Markdown file."
-)
-@click.option(
-    "--gitignore",
-    "-g",
-    type=click.Path(exists=True),
-    help="Path to the .gitignore file.",
-)
-@click.option(
-    "--filter", "-f", type=str, help='Filter pattern to include files (e.g., "*.py").'
-)
-@click.option(
-    "--suppress-comments",
-    "-s",
-    is_flag=True,
-    help="Strip comments from the code files.",
-    default=False,
-)
-@click.option(
-    "--max-depth",
-    "-d",
-    type=int,
-    default=None,
-    help="Maximum depth to recurse into subdirectories. Default is unlimited.",
-)
-def create_markdown_file(path, output, gitignore, filter, suppress_comments, max_depth=float('inf')):
+@click.option('--path', '-p', type=click.Path(exists=True), required=True, help='Path to the directory to navigate.')
+@click.option('--output', '-o', type=click.Path(), help='Name of the output Markdown file.')
+@click.option('--gitignore', '-g', type=click.Path(exists=True), help='Path to the .gitignore file.')
+@click.option('--filter', '-f', type=str, help='Filter pattern to include files (e.g., "*.py").')
+@click.option('--suppress-comments', '-s', is_flag=True, help='Strip comments from the code files.', default=False)
+@click.option('--strip-functions', '-sf', is_flag=True, help='Strip function/method/class contents.', default=False)
+@click.option('--max-depth', '-d', type=int, default=None, help='Maximum depth to recurse into subdirectories. Default is unlimited.')
+def create_markdown_file(path, output, gitignore, filter, suppress_comments, strip_functions, max_depth):
     """Create a Markdown file with the content of files in a directory."""
     content = []
     table_of_contents = []
     path = Path(path)
-    gitignore_path = Path(gitignore) if gitignore else path / ".gitignore"
+    gitignore_path = Path(gitignore) if gitignore else path / '.gitignore'
     gitignore_patterns = parse_gitignore(gitignore_path)
-    gitignore_patterns.add(".git")
+    gitignore_patterns.add('.git')
 
-    for file_path in path.rglob("*"):
+    for file_path in path.rglob('*'):
         relative_path = file_path.relative_to(path)
         current_depth = len(relative_path.parts)
 
-        if current_depth > max_depth:
+        if max_depth is not None and current_depth > max_depth:
             continue
 
-        if (
-            file_path.is_file()
-            and not is_ignored(file_path, gitignore_patterns, path)
-            and (not filter or is_filtered(file_path, filter))
-            and not is_binary(file_path)
-        ):
+        if (file_path.is_file() and
+            not is_ignored(file_path, gitignore_patterns, path) and
+            (not filter or is_filtered(file_path, filter)) and
+            not is_binary(file_path)):
+
             file_extension = file_path.suffix
             file_size = file_path.stat().st_size
-            file_creation_time = datetime.fromtimestamp(
-                file_path.stat().st_ctime
-            ).strftime("%Y-%m-%d %H:%M:%S")
-            file_modification_time = datetime.fromtimestamp(
-                file_path.stat().st_mtime
-            ).strftime("%Y-%m-%d %H:%M:%S")
+            file_creation_time = datetime.fromtimestamp(file_path.stat().st_ctime).strftime('%Y-%m-%d %H:%M:%S')
+            file_modification_time = datetime.fromtimestamp(file_path.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+
             try:
-                with file_path.open("r", encoding="utf-8") as f:
+                with file_path.open('r', encoding='utf-8') as f:
                     file_content = f.read()
-                    if suppress_comments:
-                        language = infer_language(file_path.name)
-                        if language != "unknown":
-                            file_content = strip_comments(file_content, language)
+                    language = infer_language(file_path.name)
+
+                    if suppress_comments and language != 'unknown':
+                        file_content = strip_comments(file_content, language)
+
+                    if strip_functions and language != 'unknown':
+                        file_content = strip_function_contents(file_content, language)
             except UnicodeDecodeError:
                 # Ignore files that cannot be decoded
                 continue
+
             file_info = f"## File: {file_path}\n\n"
             file_info += f"- Extension: {file_extension}\n"
             file_info += f"- Size: {file_size} bytes\n"
             file_info += f"- Created: {file_creation_time}\n"
             file_info += f"- Modified: {file_modification_time}\n\n"
+
             language = infer_language(file_path.name)
-            if language == "unknown":
+            if language == 'unknown':
                 language = format(file_extension[1:])
+
             file_code = f"### Code\n```{language}\n{file_content}\n```\n\n"
             content.append(file_info + file_code)
-            table_of_contents.append(
-                f"- [{file_path}](#{file_path.as_posix().replace('/', '')})\n"
-            )
-    markdown_content = (
-        "# Table of Contents\n" + "".join(table_of_contents) + "\n" + "".join(content)
-    )
+            table_of_contents.append(f"- [{file_path}](#{file_path.as_posix().replace('/', '')})\n")
+
+    markdown_content = "# Table of Contents\n" + "".join(table_of_contents) + "\n" + "".join(content)
+
     if output:
         output_path = Path(output)
-        with output_path.open("w", encoding="utf-8") as md_file:
+        with output_path.open('w', encoding='utf-8') as md_file:
             md_file.write(markdown_content)
         click.echo(f"Markdown file '{output_path}' created successfully.")
     else:
         click.echo(markdown_content)
 
-
-if __name__ == "__main__":
-    # pylint: disable=no-value-for-parameter
-     # Convert None to float('inf') for unlimited depth
-    max_depth = float('inf') if max_depth is None else max_depth
-    create_markdown_file(max_depth=max_depth)
+if __name__ == '__main__':
+    create_markdown_file()
