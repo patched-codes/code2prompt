@@ -73,6 +73,11 @@ from code2prompt.version import VERSION
     help="Disable wrapping code inside markdown code blocks.",
 )
 @click.option(
+    "--strip-body",
+    is_flag=True,
+    help="Remove body of functions, classes, and methods from the code files.",
+)
+@click.option(
     "--template",
     "-t",
     type=click.Path(exists=True),

@@ -8,10 +8,10 @@ from datetime import datetime
 from code2prompt.utils.add_line_numbers import add_line_numbers
 from code2prompt.utils.language_inference import infer_language
 from code2prompt.comment_stripper.strip_comments import strip_comments
-
+from code2prompt.contrib.body_stripper import strip_body_contents
 
 def process_file(
-    file_path: Path, suppress_comments: bool, line_number: bool, no_codeblock: bool, syntax_map: dict
+    file_path: Path, suppress_comments: bool, line_number: bool, no_codeblock: bool, strip_body: bool, syntax_map: dict
 ):
     """
     Processes a given file to extract its metadata and content.
@@ -43,6 +43,9 @@ def process_file(
 
         if suppress_comments and language != "unknown":
             file_content = strip_comments(file_content, language)
+
+        if strip_body:
+            file_content = strip_body_contents(file_content, language)
 
         if line_number:
             file_content = add_line_numbers(file_content)

@@ -12,6 +12,7 @@ def process_files(
     line_number: bool,
     no_codeblock: bool,
     suppress_comments: bool,
+    strip_body: bool,
     syntax_map: dict  # Add this parameter
 ) -> List[Dict[str, Any]]:
     """
@@ -37,6 +38,7 @@ def process_files(
             suppress_comments=suppress_comments,
             line_number=line_number,
             no_codeblock=no_codeblock,
+            strip_body=strip_body,
             syntax_map=syntax_map  # Ensure this is being passed
         )
         if result:

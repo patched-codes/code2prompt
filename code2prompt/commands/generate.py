@@ -38,6 +38,7 @@ class GenerateCommand(BaseCommand):
             line_number=self.config.line_number,
             no_codeblock=self.config.no_codeblock,
             suppress_comments=self.config.suppress_comments,
+            strip_body=self.config.strip_body,
             syntax_map=syntax_map,  # Pass syntax_map here
         )
         all_files_data.extend(files_data)
