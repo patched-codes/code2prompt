@@ -21,6 +21,7 @@ class Configuration(BaseModel):
     suppress_comments: bool = Field(False, description="Strip comments from the code files.")
     line_number: bool = Field(False, description="Add line numbers to source code blocks.")
     no_codeblock: bool = Field(False, description="Disable wrapping code inside markdown code blocks.")
+    strip_body: bool = Field(False, description="Strip the body of the code files.")
     template: Optional[Path] = Field(None, description="Path to a Jinja2 template file for custom prompt generation.")
     tokens: bool = Field(False, description="Display the token count of the generated prompt.")
     encoding: str = Field("cl100k_base", description="Specify the tokenizer encoding to use.")

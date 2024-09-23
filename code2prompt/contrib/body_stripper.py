@@ -4,6 +4,7 @@ import re
 
 def strip_body_contents(code: str, language: str) -> str:
     """
+    WIP
     Strip the contents of functions/methods/classes, leaving only definitions and returns.
 
     :param code: The code string to strip function contents from.
