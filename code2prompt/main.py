@@ -1,94 +1,32 @@
-""" Main module for the code2prompt package. """
+"""Main module for the code2prompt CLI tool."""
 
-from datetime import datetime
+import logging
 from pathlib import Path
-from fnmatch import fnmatch
 import click
-
-from code2prompt.language_inference import infer_language
-from code2prompt.comment_stripper import strip_comments
-
-
-def parse_gitignore(gitignore_path):
-    """Parse the .gitignore file and return a set of patterns."""
-    if not gitignore_path.exists():
-        return set()
-
-    with gitignore_path.open("r", encoding="utf-8") as file:
-        patterns = set(
-            line.strip() for line in file if line.strip() and not line.startswith("#")
-        )
-    return patterns
+from code2prompt.commands.analyze import AnalyzeCommand
+from code2prompt.commands.generate import GenerateCommand
+from code2prompt.config import Configuration
+from code2prompt.utils.logging_utils import setup_logger
+from code2prompt.commands.interactive_selector import InteractiveFileSelector
+from code2prompt.core.file_path_retriever import retrieve_file_paths
+from code2prompt.version import VERSION
 
 
-def is_ignored(file_path: Path, gitignore_patterns: list, base_path: Path) -> bool:
-    """
-    Check if a file path matches any pattern in the .gitignore file.
-
-    Args:
-        file_path (Path): The path of the file being checked.
-        gitignore_patterns (list): A list of patterns from the .gitignore file.
-        base_path (Path): The base path of the repository.
-
-    Returns:
-        bool: True if the file path matches any pattern, False otherwise.
-    """
-    relative_path = file_path.relative_to(base_path)
-
-    for pattern in gitignore_patterns:
-        pattern = pattern.rstrip("/")  # Remove trailing slash from the pattern
-
-        if pattern.startswith("/"):
-            if fnmatch(str(relative_path), pattern[1:]):
-                return True
-            if fnmatch(str(relative_path.parent), pattern[1:]):
-                return True
-        else:
-            for path in relative_path.parents:
-                if fnmatch(str(path / relative_path.name), pattern):
-                    return True
-                if fnmatch(str(path), pattern):
-                    return True
-            if fnmatch(str(relative_path), pattern):
-                return True
-
-    return False
-
-
-def is_filtered(file_path, filter_pattern):
-    """Check if a file path matches the filter pattern."""
-    return fnmatch(file_path.name, filter_pattern)
-
-
-def is_binary(file_path):
-    """
-    Determines if the specified file is a binary file.
-
-    Args:
-    file_path (str): The path to the file to check.
-
-    Returns:
-    bool: True if the file is binary, False otherwise.
-    """
-    try:
-        with open(file_path, "rb") as file:
-            # Read a small portion of the file
-            chunk = file.read(1024)
-            # A file is considered binary if it contains a null byte
-            return b"\x00" in chunk
-    except IOError:
-        # Handle the exception if the file cannot be opened
-        print(f"Error: The file at {file_path} could not be opened.")
-        return False
-
-
-@click.command()
+@click.group(invoke_without_command=True)
+@click.version_option(
+    VERSION, "-v", "--version", message="code2prompt version %(version)s"
+)
+@click.option(
+    "--config",
+    type=click.Path(exists=True, dir_okay=False),
+    help="Path to configuration file",
+)
 @click.option(
     "--path",
     "-p",
     type=click.Path(exists=True),
-    required=True,
-    help="Path to the directory to navigate.",
+    multiple=True,
+    help="Path(s) to the directory or file to process.",
 )
 @click.option(
     "--output", "-o", type=click.Path(), help="Name of the output Markdown file."
@@ -100,89 +38,200 @@ def is_binary(file_path):
     help="Path to the .gitignore file.",
 )
 @click.option(
-    "--filter", "-f", type=str, help='Filter pattern to include files (e.g., "*.py").'
+    "--filter",
+    "-f",
+    type=str,
+    help='Comma-separated filter patterns to include files (e.g., "*.py,*.js").',
+)
+@click.option(
+    "--interactive",
+    "-i",
+    is_flag=True,
+    help="Interactive mode to select files.",
+)
+@click.option(
+    "--exclude",
+    "-e",
+    type=str,
+    help='Comma-separated patterns to exclude files (e.g., "*.txt,*.md").',
+)
+@click.option(
+    "--case-sensitive", is_flag=True, help="Perform case-sensitive pattern matching."
 )
 @click.option(
     "--suppress-comments",
     "-s",
     is_flag=True,
     help="Strip comments from the code files.",
-    default=False,
 )
 @click.option(
-    "--max-depth",
-    "-d",
-    type=int,
-    default=None,
-    help="Maximum depth to recurse into subdirectories. Default is unlimited.",
+    "--line-number", "-ln", is_flag=True, help="Add line numbers to source code blocks."
 )
-def create_markdown_file(path, output, gitignore, filter, suppress_comments, max_depth=float('inf')):
-    """Create a Markdown file with the content of files in a directory."""
-    content = []
-    table_of_contents = []
-    path = Path(path)
-    gitignore_path = Path(gitignore) if gitignore else path / ".gitignore"
-    gitignore_patterns = parse_gitignore(gitignore_path)
-    gitignore_patterns.add(".git")
-
-    for file_path in path.rglob("*"):
-        relative_path = file_path.relative_to(path)
-        current_depth = len(relative_path.parts)
-
-        if current_depth > max_depth:
-            continue
-
-        if (
-            file_path.is_file()
-            and not is_ignored(file_path, gitignore_patterns, path)
-            and (not filter or is_filtered(file_path, filter))
-            and not is_binary(file_path)
-        ):
-            file_extension = file_path.suffix
-            file_size = file_path.stat().st_size
-            file_creation_time = datetime.fromtimestamp(
-                file_path.stat().st_ctime
-            ).strftime("%Y-%m-%d %H:%M:%S")
-            file_modification_time = datetime.fromtimestamp(
-                file_path.stat().st_mtime
-            ).strftime("%Y-%m-%d %H:%M:%S")
-            try:
-                with file_path.open("r", encoding="utf-8") as f:
-                    file_content = f.read()
-                    if suppress_comments:
-                        language = infer_language(file_path.name)
-                        if language != "unknown":
-                            file_content = strip_comments(file_content, language)
-            except UnicodeDecodeError:
-                # Ignore files that cannot be decoded
-                continue
-            file_info = f"## File: {file_path}\n\n"
-            file_info += f"- Extension: {file_extension}\n"
-            file_info += f"- Size: {file_size} bytes\n"
-            file_info += f"- Created: {file_creation_time}\n"
-            file_info += f"- Modified: {file_modification_time}\n\n"
-            language = infer_language(file_path.name)
-            if language == "unknown":
-                language = format(file_extension[1:])
-            file_code = f"### Code\n```{language}\n{file_content}\n```\n\n"
-            content.append(file_info + file_code)
-            table_of_contents.append(
-                f"- [{file_path}](#{file_path.as_posix().replace('/', '')})\n"
-            )
-    markdown_content = (
-        "# Table of Contents\n" + "".join(table_of_contents) + "\n" + "".join(content)
-    )
-    if output:
-        output_path = Path(output)
-        with output_path.open("w", encoding="utf-8") as md_file:
-            md_file.write(markdown_content)
-        click.echo(f"Markdown file '{output_path}' created successfully.")
+@click.option(
+    "--no-codeblock",
+    is_flag=True,
+    help="Disable wrapping code inside markdown code blocks.",
+)
+@click.option(
+    "--strip-body",
+    is_flag=True,
+    help="Remove body of functions, classes, and methods from the code files.",
+)
+@click.option(
+    "--template",
+    "-t",
+    type=click.Path(exists=True),
+    help="Path to a Jinja2 template file for custom prompt generation.",
+)
+@click.option(
+    "--tokens", is_flag=True, help="Display the token count of the generated prompt."
+)
+@click.option(
+    "--encoding",
+    type=click.Choice(["cl100k_base", "p50k_base", "p50k_edit", "r50k_base"]),
+    default="cl100k_base",
+    help="Specify the tokenizer encoding to use.",
+)
+@click.option(
+    "--create-templates",
+    is_flag=True,
+    help="Create a templates directory with example templates.",
+)
+@click.option(
+    "--log-level",
+    type=click.Choice(
+        ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], case_sensitive=False
+    ),
+    default="WARNING",
+    help="Set the logging level.",
+)
+@click.option(
+    "--price",
+    is_flag=True,
+    help="Display the estimated price of tokens based on provider and model.",
+)
+@click.option(
+    "--provider", type=str, help="Specify the provider for price calculation."
+)
+@click.option("--model", type=str, help="Specify the model for price calculation.")
+@click.option(
+    "--output-tokens",
+    type=int,
+    default=1000,
+    help="Specify the number of output tokens for price calculation.",
+)
+@click.option(
+    "--syntax-map",
+    type=str,
+    help="Comma-separated list of extension:synonym mappings for syntax highlighting."
+)
+@click.pass_context
+def cli(ctx, config, path, **generate_options):
+    """code2prompt CLI tool"""
+    ctx.obj = {}
+    if config:
+        ctx.obj["config"] = Configuration.load_from_file(Path(config))
     else:
-        click.echo(markdown_content)
+        ctx.obj["config"] = Configuration()  # This will now have syntax_map initialized
+
+    logging.info("CLI initialized with config: %s", ctx.obj["config"])
+
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(generate, path=path, **generate_options)
 
 
-if __name__ == "__main__":
-    # pylint: disable=no-value-for-parameter
-     # Convert None to float('inf') for unlimited depth
-    max_depth = float('inf') if max_depth is None else max_depth
-    create_markdown_file(max_depth=max_depth)
+@cli.command()
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True),
+    multiple=True,
+    help="Path(s) to the directory or file to process.",
+)
+@click.option(
+    "--output", "-o", type=click.Path(), help="Name of the output Markdown file."
+)
+@click.pass_context
+def generate(ctx, **options):
+    """Generate markdown from code files"""
+
+    # Parse the syntax_map option into a dictionary
+    if options.get('syntax_map'):
+        syntax_map = {}
+        for mapping in options['syntax_map'].split(','):
+            ext, syntax = mapping.split(':')
+            syntax_map['.' + ext.strip()] = syntax.strip()  # Add a dot before the extension
+        options['syntax_map'] = syntax_map  # Replace the string with the dictionary
+
+    config = ctx.obj["config"].merge(options)
+    logger = setup_logger(level=config.log_level)
+
+    selected_paths: list[Path] = [Path(p) for p in config.path]
+
+    # Check if selected_paths is empty before proceeding
+    if not selected_paths:
+        logging.error("No file paths provided. Please specify valid paths.")
+        return  # Exit the function if no paths are provided
+
+    filter_patterns: list[str] = config.filter.split(",") if config.filter else []
+    exclude_patterns: list[str] = config.exclude.split(",") if config.exclude else []
+    case_sensitive: bool = config.case_sensitive
+    gitignore: str = config.gitignore
+
+    # Handle both directory and file inputs
+    filtered_paths = []
+    for path in selected_paths:
+        if path.is_dir():
+            filtered_paths.extend(retrieve_file_paths(
+                file_paths=[path],
+                gitignore=gitignore,
+                filter_patterns=filter_patterns,
+                exclude_patterns=exclude_patterns,
+                case_sensitive=case_sensitive,
+            ))
+        elif path.is_file():
+            filtered_paths.append(path)
+
+    if filtered_paths and config.interactive:
+        file_selector = InteractiveFileSelector(filtered_paths, filtered_paths)
+        filtered_selected_path = file_selector.run()
+        config.path = filtered_selected_path
+    else:
+        config.path = filtered_paths
+
+    command = GenerateCommand(config, logger)
+    command.execute()
+
+    logger.info("Markdown generation completed.")
+
+
+@cli.command()
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True),
+    multiple=True,
+    help="Path(s) to analyze.",
+)
+@click.option(
+    "--format",
+    type=click.Choice(["flat", "tree"]),
+    default="flat",
+    help="Format of the analysis output.",
+)
+@click.pass_context
+def analyze(ctx, **options):
+    """Analyze codebase structure"""
+    config = ctx.obj["config"].merge(options)
+    logger = setup_logger(level=config.log_level)
+    logger.info("Analyzing codebase with options: %s", options)
+
+    command = AnalyzeCommand(config, logger)
+    command.execute()
+
+    logger.info("Codebase analysis completed.")
+
+
+def get_directory_tree(path):
+    """Retrieve a list of files and directories in a given path."""
+    return [p.name for p in Path(path).iterdir() if p.is_file() or p.is_dir()]
