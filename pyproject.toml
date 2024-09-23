@@ -21,6 +21,9 @@ classifiers = [
 include = [
     "code2prompt/templates/**/*",
 ]
+packages = [
+    { include = "code2prompt", from = "." }
+]
 
 [tool.poetry.dependencies]
 python = "^3.8,<4.0"
