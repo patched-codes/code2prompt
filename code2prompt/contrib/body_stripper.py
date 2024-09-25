@@ -1,32 +1,32 @@
-""" A module to strip the contents of functions, methods, and classes in various programming languages. """
-
 import re
 
 def strip_body_contents(code: str, language: str) -> str:
     """
-    WIP
-    Strip the contents of functions/methods/classes, leaving only definitions and returns.
-
-    :param code: The code string to strip function contents from.
+    Extract the names of functions and classes, along with their input parameters and types (if present) from the given code.
+    :param code: The code string to extract information from.
     :param language: The programming language of the code.
-    :return: The code string with function contents stripped.
+    :return: A string containing the extracted information, one item per line.
     """
     if language in ['python', 'ruby']:
-        pattern = re.compile(r'(def|class)\s+\w+\s*\([^)]*\):.*?(?:^\s*return.*?$|\Z)', re.DOTALL | re.MULTILINE)
+        pattern = re.compile(r'(def|class)\s+(\w+)\s*\((.*?)\)')
     elif language in ['javascript', 'typescript']:
-        pattern = re.compile(r'(function|class)\s+\w+\s*\([^)]*\)\s*{.*?}', re.DOTALL)
+        pattern = re.compile(r'(function|class)\s+(\w+)\s*\((.*?)\)')
     elif language in ['java', 'c', 'cpp', 'csharp']:
-        pattern = re.compile(r'(public|private|protected)?\s*(static)?\s*(class|interface|enum|[a-zA-Z_<>[\]]+)\s+\w+\s*(\([^)]*\))?\s*{.*?}', re.DOTALL)
+        pattern = re.compile(r'(?:class|interface|enum|\b(?:void|int|float|double|char|boolean|[a-zA-Z_][\w.<>[\]]*)\b)\s+(\w+)\s*(?:\((.*?)\))?')
     else:
-        return code  # Return original code for unsupported languages
+        return "Unsupported language"
 
-    def replace_func(match):
-        func_def = match.group(0).split('\n')[0]
-        func_body = match.group(0)[len(func_def):]
-        return_statement = re.search(r'^\s*return.*?$', func_body, re.MULTILINE)
-        if return_statement:
-            return f"{func_def}\n    ...\n{return_statement.group(0)}\n"
+    matches = pattern.findall(code)
+    
+    result = []
+    for match in matches:
+        if language in ['python', 'ruby', 'javascript', 'typescript']:
+            name = match[1]
+            params = match[2]
+            result.append(f"{match[0]} {name}({params})")
         else:
-            return f"{func_def}\n    ...\n"
+            name = match[0]
+            params = match[1] if len(match) > 1 else ""
+            result.append(f"{name}({params})")
 
-    return pattern.sub(replace_func, code)
+    return "\n".join(result)
