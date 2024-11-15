@@ -10,6 +10,7 @@ from code2prompt.utils.language_inference import infer_language
 from code2prompt.comment_stripper.strip_comments import strip_comments
 from code2prompt.contrib.body_stripper import strip_body_contents
 
+
 def process_file(
     file_path: Path, suppress_comments: bool, line_number: bool, no_codeblock: bool, strip_body: bool, syntax_map: dict
 ):
